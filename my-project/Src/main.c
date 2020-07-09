@@ -60,7 +60,7 @@ static void MX_GPIO_Init(void);
 
 /* USER CODE END 0 */
 
-volatile int CUBE = 0;
+volatile int CUBE = 1;
 
 /**
   * @brief  The application entry point.
@@ -73,11 +73,9 @@ int main(void)
 	HAL_Init();
 	xSystemClock_Config();
 	xMX_GPIO_Init();
-#if 0
 	if (CUBE)
 		MX_USB_DEVICE_Init();
 	else
-#endif
 		xmain();
 
 	xEnableUsbInterrupt();

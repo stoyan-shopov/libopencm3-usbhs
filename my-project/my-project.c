@@ -44,11 +44,9 @@ extern volatile int CUBE;
 void otg_hs_isr(void)
 {
 	//use_libopencm3_usb_code ? xusb_poll() : HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
-#if 0
 	if (CUBE)
 		HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
 	else
-#endif
 		xusb_poll();
 }
 
