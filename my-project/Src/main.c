@@ -60,7 +60,7 @@ static void MX_GPIO_Init(void);
 
 /* USER CODE END 0 */
 
-volatile int CUBE = 1;
+volatile int CUBE = 0;
 
 /**
   * @brief  The application entry point.
