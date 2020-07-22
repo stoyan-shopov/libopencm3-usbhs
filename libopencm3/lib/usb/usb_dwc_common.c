@@ -190,7 +190,6 @@ void dwc_ep_nak_set(usbd_device *usbd_dev, uint8_t addr, uint8_t nak)
 	}
 }
 
-volatile int wflag;
 uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 			      const void *buf, uint16_t len)
 {
@@ -205,7 +204,6 @@ uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 
 	/* Return if endpoint is already enabled. */
 	if (REBASE(OTG_DIEPTSIZ(addr)) & OTG_DIEPSIZ0_PKTCNT) {
-		wflag ++;
 		return 0;
 	}
 
@@ -302,7 +300,6 @@ uint16_t dwc_ep_read_packet(usbd_device *usbd_dev, uint8_t addr,
 static void dwc_flush_txfifo(usbd_device *usbd_dev, int ep)
 {
 	uint32_t fifo;
-
 	/* set IN endpoint NAK */
 	REBASE(OTG_DIEPCTL(ep)) |= OTG_DIEPCTL0_SNAK;
 	/* wait for core to respond */
@@ -364,11 +361,6 @@ void dwc_poll(usbd_device *usbd_dev)
 		_usbd_reset(usbd_dev);
 		return;
 	}
-#if 0
-	// This is very evil...
-	for (i = 0U; i < 9; i ++)
-		REBASE(OTG_DOEPINT(i)) |= 0xFB7FU;
-#endif
 
 	/*
 	 * There is no global interrupt flag for transmit complete.
