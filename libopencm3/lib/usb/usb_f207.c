@@ -101,8 +101,7 @@ static usbd_device *stm32f207_usbd_init(void)
 	HAL_Delay(50U);
 
 	OTG_HS_DCTL |= OTG_DCTL_SDIS;
-
-	OTG_HS_PCGCCTL = 0;
+	HAL_Delay(10);
 
 	OTG_HS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | (0x10 << 6);
 	while (OTG_HS_GRSTCTL & OTG_GRSTCTL_TXFFLSH);
@@ -117,9 +116,6 @@ static usbd_device *stm32f207_usbd_init(void)
 			 OTG_GINTMSK_USBRST |
 			 OTG_GINTMSK_WUIM;
 
-	/* this is redundant - already set above */
-	OTG_HS_DCTL |= OTG_DCTL_SDIS;
-	HAL_Delay(3U);
 
 	/* maybe redundant - this is the reset value */
 	//OTG_HS_GRXFSIZ = 0x400;
@@ -129,7 +125,7 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_GNPTXFSIZ = (0x80 << 16) | OTG_HS_GRXFSIZ;
 
 	OTG_HS_DCTL &=~ OTG_DCTL_SDIS;
-	HAL_Delay(3U);
+	HAL_Delay(10U);
 	OTG_HS_GAHBCFG |= OTG_GAHBCFG_GINT;
 
 	return &usbd_dev;
