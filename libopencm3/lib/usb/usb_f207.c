@@ -71,7 +71,7 @@ static usbd_device *stm32f207_usbd_init(void)
 	int i = 0;
 
 	OTG_HS_GAHBCFG &=~ OTG_GAHBCFG_GINT; 
-	OTG_HS_GINTSTS = OTG_GINTSTS_MMIS; //???
+	OTG_HS_GINTSTS = OTG_GINTSTS_MMIS;
 
 	// ??? What is this??? It is not documented in the manual
 	OTG_HS_GCCFG |= OTG_GCCFG_PHYHSEN;
@@ -112,40 +112,6 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_GRSTCTL = OTG_GRSTCTL_RXFFLSH;
 	while (OTG_HS_GRSTCTL & OTG_GRSTCTL_RXFFLSH);
 
-	/* Clear all pending Device Interrupts */
-	OTG_HS_DIEPMSK = 0;
-	OTG_HS_DOEPMSK = 0;
-	OTG_HS_DAINTMSK = 0;
-#if 0
-	for (i = 0U; i < 9; i++)
-	{
-		OTG_HS_DIEPCTL(i) = 0;
-		OTG_HS_DIEPTSIZ(i) = 0;
-		/* ??? what is this value ??? */
-		OTG_HS_DIEPINT(i) = 0xFB7FU;
-	}
-	for (i = 0U; i < 9; i++)
-	{
-		OTG_HS_DOEPCTL(i) = 0;
-		OTG_HS_DOEPTSIZ(i) = 0;
-		OTG_HS_DOEPINT(i) = 0;
-	}
-#endif
-	OTG_HS_GINTMSK = 0;
-	/* Clear any pending interrupts */
-	OTG_HS_GINTSTS = 0xBFFFFFFFU;
-#if 0
-	OTG_HS_GINTMSK |= OTG_GINTMSK_RXFLVLM
-		| OTG_GINTMSK_USBSUSPM
-		| OTG_GINTMSK_USBRST
-		| OTG_GINTMSK_ENUMDNEM
-		| OTG_GINTMSK_IEPINT
-		| OTG_GINTMSK_OEPINT
-		| OTG_GINTMSK_IISOOXFRM
-		| OTG_GINTMSK_WUIM
-		;
-#else 
-
 	OTG_HS_GINTMSK = OTG_GINTMSK_ENUMDNEM |
 			 OTG_GINTMSK_RXFLVLM |
 			 OTG_GINTMSK_IEPINT |
@@ -153,7 +119,6 @@ static usbd_device *stm32f207_usbd_init(void)
 			 OTG_GINTMSK_USBSUSPM |
 			 OTG_GINTMSK_USBRST |
 			 OTG_GINTMSK_WUIM;
-#endif
 
 	/* this is redundant - already set above */
 	OTG_HS_DCTL |= OTG_DCTL_SDIS;
