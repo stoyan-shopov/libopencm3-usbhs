@@ -78,6 +78,7 @@ int main(void)
 	else
 		xmain();
 
+	init_timer2();
 	xEnableUsbInterrupt();
 	while (1)
 	{

@@ -2,6 +2,8 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/cm3/nvic.h>
 
+#include <libopencm3/stm32/timer.h>
+
 void xSystemClock_Config(void)
 {
 	rcc_clock_setup_hse(rcc_3v3 + RCC_CLOCK_3V3_216MHZ, 25000000);
@@ -60,5 +62,14 @@ void xMX_GPIO_Init(void)
 {
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOH);
+}
+
+
+void init_timer2(void)
+{
+	rcc_periph_clock_enable(RCC_TIM2);
+	TIM2_PSC = 54000 - 1;
+	TIM2_EGR = TIM_EGR_UG;
+	TIM2_CR1 = TIM_CR1_CEN;
 }
 

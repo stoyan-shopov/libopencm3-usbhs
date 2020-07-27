@@ -24,11 +24,44 @@
 #include "usb_private.h"
 #include "usb_dwc_common.h"
 
+#include <libopencm3/stm32/timer.h>
+
 /* The FS core and the HS core have the same register layout.
  * As the code can be used on both cores, the registers offset is modified
  * according to the selected cores base address. */
 #define dev_base_address (usbd_dev->driver->base_address)
 #define REBASE(x)        MMIO32((x) + (dev_base_address))
+
+enum
+{
+	FRAME_COUNT	= 1024,
+};
+static struct trace_frame
+{
+	enum TRACE_FRAME_TYPE
+	{
+		TR_INVALID = 0,
+		TR_IRQ_ENTER,
+		TR_IRQ_EXIT,
+		TR_PACKET_DATA_AVAILABLE,
+		TR_IN_PACKET_SENT,
+		TR_OUT_PACKET_COMPLETE,
+		TR_PACKET_RECEIVED,
+		TR_GENERIC,
+	}
+	type;
+	uint32_t	time;
+	uint32_t	data;
+}
+trace_frames[FRAME_COUNT];
+static int frame_index;
+
+void log_trace_frame(enum TRACE_FRAME_TYPE type, uint32_t data)
+{
+	if (frame_index >= FRAME_COUNT)
+		return;
+	trace_frames[frame_index ++] = (struct trace_frame) { .type = type, .time = TIM2_CNT, .data = data, };
+}
 
 void dwc_set_address(usbd_device *usbd_dev, uint8_t addr)
 {
@@ -326,6 +359,7 @@ volatile uint32_t mask;
 volatile uint32_t xmask;
 void dwc_poll(usbd_device *usbd_dev)
 {
+log_trace_frame(TR_IRQ_ENTER, __LINE__);
 	/* Read interrupt status register. */
 	uint32_t intsts = REBASE(OTG_GINTSTS);
 	mask = REBASE(OTG_GINTMSK);
@@ -359,6 +393,7 @@ void dwc_poll(usbd_device *usbd_dev)
 		REBASE(OTG_GINTSTS) = OTG_GINTSTS_ENUMDNE;
 		usbd_dev->fifo_mem_top = usbd_dev->driver->rx_fifo_size;
 		_usbd_reset(usbd_dev);
+log_trace_frame(TR_IRQ_EXIT, __LINE__);
 		return;
 	}
 
@@ -369,6 +404,7 @@ void dwc_poll(usbd_device *usbd_dev)
 	for (i = 0; i < 4; i++) { /* Iterate over endpoints. */
 		if (REBASE(OTG_DIEPINT(i)) & OTG_DIEPINTX_XFRC) {
 			/* Transfer complete. */
+log_trace_frame(TR_IN_PACKET_SENT, i);
 			if (usbd_dev->user_callback_ctr[i]
 						       [USB_TRANSACTION_IN]) {
 				usbd_dev->user_callback_ctr[i]
@@ -381,6 +417,7 @@ void dwc_poll(usbd_device *usbd_dev)
 
 	/* Note: RX and TX handled differently in this device. */
 	if (intsts & OTG_GINTSTS_RXFLVL) {
+log_trace_frame(TR_PACKET_DATA_AVAILABLE, __LINE__);
 
 		REBASE(OTG_GINTMSK) &=~ OTG_GINTMSK_RXFLVLM;
 
@@ -389,8 +426,9 @@ void dwc_poll(usbd_device *usbd_dev)
 		uint32_t pktsts = rxstsp & OTG_GRXSTSP_PKTSTS_MASK;
 		uint8_t ep = rxstsp & OTG_GRXSTSP_EPNUM_MASK;
 		// shopov: arm next out transaction - THIS SHOULD NOT BE DONE HERE!!!
-		if (pktsts == OTG_GRXSTSP_PKTSTS_OUT_COMP
-				|| pktsts == OTG_GRXSTSP_PKTSTS_SETUP_COMP)  {
+		if (pktsts == OTG_GRXSTSP_PKTSTS_OUT_COMP /* 3 */
+				|| pktsts == OTG_GRXSTSP_PKTSTS_SETUP_COMP /* 4 */)  {
+log_trace_frame(TR_OUT_PACKET_COMPLETE, ep);
 
 #if 1			
 			REBASE(OTG_DOEPTSIZ(ep)) = usbd_dev->doeptsiz[ep];
@@ -400,17 +438,19 @@ void dwc_poll(usbd_device *usbd_dev)
 				 OTG_DOEPCTL0_SNAK : OTG_DOEPCTL0_CNAK);
 			REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 #endif
+log_trace_frame(TR_IRQ_EXIT, __LINE__);
 			return;
 		}
 
-		if ((pktsts != OTG_GRXSTSP_PKTSTS_OUT) &&
-		    (pktsts != OTG_GRXSTSP_PKTSTS_SETUP)) {
+		if ((pktsts != OTG_GRXSTSP_PKTSTS_OUT /* 2 */) &&
+		    (pktsts != OTG_GRXSTSP_PKTSTS_SETUP /* 6 */)) {
 		REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
+log_trace_frame(TR_IRQ_EXIT, __LINE__);
 			return;
 		}
 
 		uint8_t type;
-		if (pktsts == OTG_GRXSTSP_PKTSTS_SETUP) {
+		if (pktsts == OTG_GRXSTSP_PKTSTS_SETUP /* 6 */) {
 			type = USB_TRANSACTION_SETUP;
 		} else {
 			type = USB_TRANSACTION_OUT;
@@ -421,6 +461,7 @@ void dwc_poll(usbd_device *usbd_dev)
 			/* SETUP received but there is still something stuck
 			 * in the transmit fifo.  Flush it.
 			 */
+			while (1);
 			dwc_flush_txfifo(usbd_dev, ep);
 		}
 
@@ -431,6 +472,8 @@ void dwc_poll(usbd_device *usbd_dev)
 			usbd_dev->user_callback_ctr[ep][type] (usbd_dev, ep);
 		}
 
+		if (usbd_dev->rxbcnt)
+			while (1);
 		/* Discard unread packet data. */
 		for (i = 0; i < usbd_dev->rxbcnt; i += 4) {
 			/* There is only one receive FIFO, so use OTG_FIFO(0) */
@@ -473,6 +516,7 @@ REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 	for (i = 0U; i < 9; i ++)
 		REBASE(OTG_DOEPINT(i)) |= 0xFB7FU;
 #endif
+log_trace_frame(TR_IRQ_EXIT, __LINE__);
 }
 
 void dwc_disconnect(usbd_device *usbd_dev, bool disconnected)
