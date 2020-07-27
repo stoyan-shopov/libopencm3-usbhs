@@ -36,7 +36,7 @@ enum
 {
 	FRAME_COUNT	= 1024,
 };
-static struct trace_frame
+static volatile struct trace_frame
 {
 	enum TRACE_FRAME_TYPE
 	{
@@ -359,11 +359,13 @@ volatile uint32_t mask;
 volatile uint32_t xmask;
 void dwc_poll(usbd_device *usbd_dev)
 {
-log_trace_frame(TR_IRQ_ENTER, __LINE__);
 	/* Read interrupt status register. */
 	uint32_t intsts = REBASE(OTG_GINTSTS);
 	mask = REBASE(OTG_GINTMSK);
 	xmask = intsts & mask;
+
+log_trace_frame(TR_IRQ_ENTER, xmask);
+
 	int i;
 
 	if (intsts)
@@ -417,7 +419,7 @@ log_trace_frame(TR_IN_PACKET_SENT, i);
 
 	/* Note: RX and TX handled differently in this device. */
 	if (intsts & OTG_GINTSTS_RXFLVL) {
-log_trace_frame(TR_PACKET_DATA_AVAILABLE, __LINE__);
+log_trace_frame(TR_PACKET_DATA_AVAILABLE, i);
 
 		REBASE(OTG_GINTMSK) &=~ OTG_GINTMSK_RXFLVLM;
 
@@ -512,7 +514,7 @@ REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 	}
 
 #if 1
-	// This is very evil...
+	// This is very evil... Black magic from the st sources; some of the bits are not even documented; this must go away
 	for (i = 0U; i < 9; i ++)
 		REBASE(OTG_DOEPINT(i)) |= 0xFB7FU;
 #endif
