@@ -26,6 +26,8 @@
 
 #include <libopencm3/stm32/timer.h>
 
+#include <libopencm3/tracelog.h>
+
 /* The FS core and the HS core have the same register layout.
  * As the code can be used on both cores, the registers offset is modified
  * according to the selected cores base address. */
@@ -38,18 +40,7 @@ enum
 };
 static volatile struct trace_frame
 {
-	enum TRACE_FRAME_TYPE
-	{
-		TR_INVALID = 0,
-		TR_IRQ_ENTER,
-		TR_IRQ_EXIT,
-		TR_PACKET_DATA_AVAILABLE,
-		TR_IN_PACKET_SENT,
-		TR_OUT_PACKET_COMPLETE,
-		TR_PACKET_RECEIVED,
-		TR_GENERIC,
-	}
-	type;
+	enum TRACE_FRAME_TYPE type;
 	uint32_t	time;
 	uint32_t	data;
 }
@@ -213,6 +204,8 @@ void dwc_ep_nak_set(usbd_device *usbd_dev, uint8_t addr, uint8_t nak)
 	if (addr & 0x80) {
 		return;
 	}
+
+log_trace_frame(TR_SET_NAK, nak);
 
 	usbd_dev->force_nak[addr] = nak;
 
@@ -513,10 +506,24 @@ REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 		REBASE(OTG_GINTMSK) &= ~OTG_GINTMSK_SOFM;
 	}
 
-#if 1
+	if (intsts & OTG_GINTSTS_OEPINT)
+	{
+		uint32_t daint = REBASE(OTG_DAINT);
+		int epnum;
+		for (epnum = 0; epnum <= 8; epnum ++)
+			if (daint & (1 << (16 + epnum)))
+{
+log_trace_frame(TR_DOEPINT_EPNUM, epnum);
+uint32_t t = REBASE(OTG_DOEPINT(epnum));
+REBASE(OTG_DOEPINT(epnum)) = t;
+log_trace_frame(TR_DOEPINT, t);
+}
+	}
+
+#if 0
 	// This is very evil... Black magic from the st sources; some of the bits are not even documented; this must go away
 	for (i = 0U; i < 9; i ++)
-		REBASE(OTG_DOEPINT(i)) |= 0xFB7FU;
+		REBASE(OTG_DOEPINT(i)) |= 0xFB7F;
 #endif
 log_trace_frame(TR_IRQ_EXIT, __LINE__);
 }

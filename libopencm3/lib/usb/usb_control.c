@@ -37,6 +37,7 @@ LGPL License Terms @ref lgpl_license
 
 #include <stdlib.h>
 #include <libopencm3/usb/usbd.h>
+#include <libopencm3/tracelog.h>
 #include "usb_private.h"
 
 /*
@@ -224,6 +225,8 @@ void _usbd_control_setup(usbd_device *usbd_dev, uint8_t ea)
 	struct usb_setup_data *req = &usbd_dev->control_state.req;
 	(void)ea;
 
+log_trace_frame(TR_CONTROL_SETUP, req->wLength);
+
 	usbd_dev->control_state.complete = NULL;
 
 	usbd_ep_nak_set(usbd_dev, 0, 1);
@@ -244,10 +247,13 @@ void _usbd_control_setup(usbd_device *usbd_dev, uint8_t ea)
 
 void _usbd_control_out(usbd_device *usbd_dev, uint8_t ea)
 {
+log_trace_frame(TR_CONTROL_OUT, usbd_dev->control_state.state);
+
 	(void)ea;
 
 	switch (usbd_dev->control_state.state) {
 	case DATA_OUT:
+log_trace_frame(TR_DATA_OUT, 0);
 		if (usb_control_recv_chunk(usbd_dev) < 0) {
 			break;
 		}
@@ -258,6 +264,7 @@ void _usbd_control_out(usbd_device *usbd_dev, uint8_t ea)
 		}
 		break;
 	case LAST_DATA_OUT:
+log_trace_frame(TR_LAST_DATA_OUT, 0);
 		if (usb_control_recv_chunk(usbd_dev) < 0) {
 			break;
 		}
@@ -275,6 +282,7 @@ void _usbd_control_out(usbd_device *usbd_dev, uint8_t ea)
 		}
 		break;
 	case STATUS_OUT:
+log_trace_frame(TR_STATUS_OUT, 0);
 		usbd_ep_read_packet(usbd_dev, 0, NULL, 0);
 		usbd_dev->control_state.state = IDLE;
 		if (usbd_dev->control_state.complete) {
@@ -290,18 +298,23 @@ void _usbd_control_out(usbd_device *usbd_dev, uint8_t ea)
 
 void _usbd_control_in(usbd_device *usbd_dev, uint8_t ea)
 {
+log_trace_frame(TR_CONTROL_IN, usbd_dev->control_state.state);
+
 	(void)ea;
 	struct usb_setup_data *req = &(usbd_dev->control_state.req);
 
 	switch (usbd_dev->control_state.state) {
 	case DATA_IN:
+log_trace_frame(TR_DATA_IN, 0);
 		usb_control_send_chunk(usbd_dev);
 		break;
 	case LAST_DATA_IN:
+log_trace_frame(TR_LAST_DATA_IN, 0);
 		usbd_dev->control_state.state = STATUS_OUT;
 		usbd_ep_nak_set(usbd_dev, 0, 0);
 		break;
 	case STATUS_IN:
+log_trace_frame(TR_STATUS_IN, 0);
 		if (usbd_dev->control_state.complete) {
 			usbd_dev->control_state.complete(usbd_dev,
 					&(usbd_dev->control_state.req));
