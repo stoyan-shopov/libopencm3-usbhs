@@ -111,7 +111,7 @@ void dwc_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
 		REBASE(OTG_DIEPTSIZ(addr)) =
 		    (max_size & OTG_DIEPSIZ0_XFRSIZ_MASK);
 		REBASE(OTG_DIEPCTL(addr)) |=
-		    OTG_DIEPCTL0_EPENA | OTG_DIEPCTL0_SNAK | (type << 18)
+		    /*OTG_DIEPCTL0_EPENA |*/ OTG_DIEPCTL0_SNAK | (type << 18)
 		    | OTG_DIEPCTL0_USBAEP | OTG_DIEPCTLX_SD0PID
 		    | (addr << 22) | max_size;
 
@@ -230,7 +230,7 @@ uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 
 	/* Return if endpoint is already enabled. */
 	if (REBASE(OTG_DIEPTSIZ(addr)) & OTG_DIEPSIZ0_PKTCNT) {
-		while(1);
+		//while(1);
 		return 0;
 	}
 	while ((OTG_DTXFSTS(addr) & 0xffff) < ((len + 3) >> 2))
