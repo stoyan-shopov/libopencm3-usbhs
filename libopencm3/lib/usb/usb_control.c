@@ -231,9 +231,6 @@ void _usbd_control_setup(usbd_device *usbd_dev, uint8_t ea)
 	struct usb_setup_data *req = &usbd_dev->control_state.req;
 	(void)ea;
 
-log_trace_frame(TR_CONTROL_SETUP, (req->bmRequestType << 24) | (req->bRequest << 16) | req->wValue);
-log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
-
 	usbd_dev->control_state.complete = NULL;
 
 	usbd_ep_nak_set(usbd_dev, 0, 1);
@@ -242,6 +239,9 @@ log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
 		stall_transaction(usbd_dev);
 		return;
 	}
+
+log_trace_frame(TR_CONTROL_SETUP, (req->bmRequestType << 24) | (req->bRequest << 16) | req->wValue);
+log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
 
 	if (req->wLength == 0) {
 		usb_control_setup_read(usbd_dev, req);

@@ -230,8 +230,11 @@ uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 
 	/* Return if endpoint is already enabled. */
 	if (REBASE(OTG_DIEPTSIZ(addr)) & OTG_DIEPSIZ0_PKTCNT) {
+		while(1);
 		return 0;
 	}
+	while ((OTG_DTXFSTS(addr) & 0xffff) < ((len + 3) >> 2))
+		;
 
 	/* Enable endpoint for transmission. */
 	REBASE(OTG_DIEPTSIZ(addr)) = OTG_DIEPSIZ0_PKTCNT | len;
@@ -264,7 +267,59 @@ uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 	return len;
 }
 
+static bool packet_armed = false;
+static int usb_len;
+static uint8_t usb_buf[1024];
+
+
+
 uint16_t dwc_ep_read_packet(usbd_device *usbd_dev, uint8_t addr,
+				  void *buf, uint16_t len)
+{
+	if (!packet_armed)
+		while(1);
+	packet_armed = false;
+	memcpy(buf, usb_buf, usb_len);
+	return usb_len;
+}
+
+uint16_t dwc_ep_read_packet_internal(usbd_device *usbd_dev)
+{
+	int i;
+	uint32_t *buf32 = usb_buf;
+	uint32_t extra;
+	uint16_t len = sizeof usb_buf;
+	if (packet_armed)
+		while(1);
+
+	len = MIN(len, usbd_dev->rxbcnt);
+
+	/* ARMv7M supports non-word-aligned accesses, ARMv6M does not. */
+	for (i = len; i >= 4; i -= 4) {
+		*buf32++ = REBASE(OTG_FIFO(0));
+		usbd_dev->rxbcnt -= 4;
+	}
+
+	if (i) {
+		extra = REBASE(OTG_FIFO(0));
+		/* we read 4 bytes from the fifo, so update rxbcnt */
+		if (usbd_dev->rxbcnt < 4) {
+			/* Be careful not to underflow (rxbcnt is unsigned) */
+			usbd_dev->rxbcnt = 0;
+		} else {
+			usbd_dev->rxbcnt -= 4;
+		}
+		memcpy(buf32, &extra, i);
+	}
+	packet_armed = true;
+
+	return usb_len = len;
+}
+
+
+
+
+uint16_t dwc_ep_read_packet_original(usbd_device *usbd_dev, uint8_t addr,
 				  void *buf, uint16_t len)
 {
 	int i;
@@ -400,21 +455,48 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 		if (REBASE(OTG_DIEPINT(i)) & OTG_DIEPINTX_XFRC) {
 			/* Transfer complete. */
 log_trace_frame(TR_IN_PACKET_SENT, i);
+			REBASE(OTG_DIEPINT(i)) = OTG_DIEPINTX_XFRC;
 			if (usbd_dev->user_callback_ctr[i]
 						       [USB_TRANSACTION_IN]) {
 				usbd_dev->user_callback_ctr[i]
 					[USB_TRANSACTION_IN](usbd_dev, i);
 			}
-
-			REBASE(OTG_DIEPINT(i)) = OTG_DIEPINTX_XFRC;
 		}
 	}
+
+
+	if (intsts & OTG_GINTSTS_RXFLVL) {
+		/* Receive FIFO non-empty. */
+		uint32_t rxstsp = REBASE(OTG_GRXSTSP);
+		uint32_t pktsts = rxstsp & OTG_GRXSTSP_PKTSTS_MASK;
+		uint8_t ep = rxstsp & OTG_GRXSTSP_EPNUM_MASK;
+
+		/* Save packet size for dwc_ep_read_packet(). */
+		usbd_dev->rxbcnt = (rxstsp & OTG_GRXSTSP_BCNT_MASK) >> 4;
+
+		if (pktsts == OTG_GRXSTSP_PKTSTS_OUT /* 2 */)
+		{
+			if (usbd_dev->rxbcnt)
+				dwc_ep_read_packet_internal(usbd_dev);
+			else
+				packet_armed = true, usb_len = 0;
+		}
+		else if (pktsts == OTG_GRXSTSP_PKTSTS_SETUP /* 6 */)
+		{
+			if (usbd_dev->rxbcnt)
+				dwc_ep_read_packet_internal(usbd_dev);
+			else
+				packet_armed = true, usb_len = 0;
+		}
+	}
+
+#if 0
 
 	/* Note: RX and TX handled differently in this device. */
 	if (intsts & OTG_GINTSTS_RXFLVL) {
 log_trace_frame(TR_PACKET_DATA_AVAILABLE, i);
 
-		REBASE(OTG_GINTMSK) &=~ OTG_GINTMSK_RXFLVLM;
+//REBASE(OTG_GINTMSK) &=~ OTG_GINTMSK_RXFLVLM;
 
 		/* Receive FIFO non-empty. */
 		uint32_t rxstsp = REBASE(OTG_GRXSTSP);
@@ -431,7 +513,7 @@ log_trace_frame(TR_OUT_PACKET_COMPLETE, ep);
 
 				(usbd_dev->force_nak[ep] ?
 				 OTG_DOEPCTL0_SNAK : OTG_DOEPCTL0_CNAK);
-			REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
+//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 #endif
 log_trace_frame(TR_IRQ_EXIT, __LINE__);
 			return;
@@ -439,7 +521,7 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 
 		if ((pktsts != OTG_GRXSTSP_PKTSTS_OUT /* 2 */) &&
 		    (pktsts != OTG_GRXSTSP_PKTSTS_SETUP /* 6 */)) {
-		REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
+//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 log_trace_frame(TR_IRQ_EXIT, __LINE__);
 			return;
 		}
@@ -476,8 +558,9 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 		}
 
 		usbd_dev->rxbcnt = 0;
-REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
+//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 	}
+#endif
 
 	if (intsts & OTG_GINTSTS_USBSUSP) {
 		if (usbd_dev->user_callback_suspend) {
@@ -512,19 +595,45 @@ REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
 		int epnum;
 		for (epnum = 0; epnum <= 8; epnum ++)
 			if (daint & (1 << (16 + epnum)))
-{
-log_trace_frame(TR_DOEPINT_EPNUM, epnum);
-uint32_t t = REBASE(OTG_DOEPINT(epnum));
-REBASE(OTG_DOEPINT(epnum)) = t;
-log_trace_frame(TR_DOEPINT, t);
-}
+			{
+				log_trace_frame(TR_DOEPINT_EPNUM, epnum);
+				uint32_t t = REBASE(OTG_DOEPINT(epnum));
+				REBASE(OTG_DOEPINT(epnum)) = t;
+				log_trace_frame(TR_DOEPINT, t);
+
+				if (t & (1 << 0) /* xfrc */)
+				{
+					REBASE(OTG_DOEPINT(epnum)) = (1 << 0);
+					if (usbd_dev->user_callback_ctr[epnum][USB_TRANSACTION_OUT]) {
+						usbd_dev->user_callback_ctr[epnum][USB_TRANSACTION_OUT] (usbd_dev, epnum);
+					}
+					REBASE(OTG_DOEPTSIZ(epnum)) = usbd_dev->doeptsiz[epnum];
+					REBASE(OTG_DOEPCTL(epnum)) |= OTG_DOEPCTL0_EPENA |
+
+						(usbd_dev->force_nak[epnum] ?
+						 OTG_DOEPCTL0_SNAK : OTG_DOEPCTL0_CNAK);
+				}
+				if (t & (1 << 3) /* stup */)
+				{
+					REBASE(OTG_DOEPINT(epnum)) = (1 << 3);
+					if (usbd_dev->user_callback_ctr[epnum][USB_TRANSACTION_SETUP]) {
+						usbd_dev->user_callback_ctr[epnum][USB_TRANSACTION_SETUP] (usbd_dev, epnum);
+					}
+					REBASE(OTG_DOEPTSIZ(epnum)) = usbd_dev->doeptsiz[epnum];
+					REBASE(OTG_DOEPCTL(epnum)) |= OTG_DOEPCTL0_EPENA |
+
+						(usbd_dev->force_nak[epnum] ?
+						 OTG_DOEPCTL0_SNAK : OTG_DOEPCTL0_CNAK);
+				}
+				if (t & (1 << 4) /* otepdis */)
+					REBASE(OTG_DOEPINT(epnum)) = (1 << 4);
+				if (t & (1 << 5) /* otepspr */)
+					REBASE(OTG_DOEPINT(epnum)) = (1 << 5);
+				if (t & (1 << 13) /* nak */)
+					REBASE(OTG_DOEPINT(epnum)) = (1 << 13);
+			}
 	}
 
-#if 0
-	// This is very evil... Black magic from the st sources; some of the bits are not even documented; this must go away
-	for (i = 0U; i < 9; i ++)
-		REBASE(OTG_DOEPINT(i)) |= 0xFB7F;
-#endif
 log_trace_frame(TR_IRQ_EXIT, __LINE__);
 }
 
