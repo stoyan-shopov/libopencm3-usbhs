@@ -47,6 +47,7 @@ LGPL License Terms @ref lgpl_license
  */
 static void stall_transaction(usbd_device *usbd_dev)
 {
+log_trace_frame(TR_STALL_SET, 0);
 	usbd_ep_stall_set(usbd_dev, 0, 1);
 	usbd_dev->control_state.state = IDLE;
 }
@@ -165,9 +166,14 @@ usb_control_request_dispatch(usbd_device *usbd_dev,
 	}
 
 	/* Try standard request if not already handled. */
-	return _usbd_standard_request(usbd_dev, req,
+	result = _usbd_standard_request(usbd_dev, req,
 				      &(usbd_dev->control_state.ctrl_buf),
 				      &(usbd_dev->control_state.ctrl_len));
+	if (result == USBD_REQ_HANDLED)
+log_trace_frame(TR_USB_CONTROL_STANDARD_REQ_HANDLED, usbd_dev->control_state.ctrl_len);
+	else
+log_trace_frame(TR_USB_CONTROL_STANDARD_REQ_NOT_HANDLED, 0);
+	return result;
 }
 
 /* Handle commands and read requests. */
@@ -225,7 +231,8 @@ void _usbd_control_setup(usbd_device *usbd_dev, uint8_t ea)
 	struct usb_setup_data *req = &usbd_dev->control_state.req;
 	(void)ea;
 
-log_trace_frame(TR_CONTROL_SETUP, req->wLength);
+log_trace_frame(TR_CONTROL_SETUP, (req->bmRequestType << 24) | (req->bRequest << 16) | req->wValue);
+log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
 
 	usbd_dev->control_state.complete = NULL;
 
