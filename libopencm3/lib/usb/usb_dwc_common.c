@@ -418,7 +418,7 @@ log_trace_frame(TR_IRQ_ENTER, xmask);
 
 	if (intsts)
 		xxx ++;
-
+#if 0
 	if (intsts & OTG_GINTSTS_USBRST) {
 		REBASE(OTG_DCTL) &=~ OTG_DCTL_RWUSIG;
 		REBASE(OTG_DAINTMSK) = 0xffffffff;
@@ -437,6 +437,7 @@ log_trace_frame(TR_IRQ_ENTER, xmask);
 		REBASE(OTG_DCFG) &=~ OTG_DCFG_DAD;
 		REBASE(OTG_GINTSTS) = OTG_GINTSTS_USBRST;
 	}
+#endif
 
 	if (intsts & OTG_GINTSTS_ENUMDNE) {
 		/* Handle USB RESET condition. */

@@ -55,7 +55,7 @@ const struct _usbd_driver stm32f207_usb_driver = {
 /** Initialize the USB device controller hardware of the STM32. */
 static usbd_device *stm32f207_usbd_init(void)
 {
-	//return &usbd_dev;
+#if WORKING_INIT || 0
 	rcc_periph_clock_enable(RCC_GPIOB);
 	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO14 | GPIO15);
 	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, GPIO14 | GPIO15);
@@ -68,7 +68,6 @@ static usbd_device *stm32f207_usbd_init(void)
 	// TODO - check the preemption and subpriority, they are unified here
 	nvic_set_priority(NVIC_OTG_HS_IRQ, 0);
 	//nvic_set_priority(NVIC_OTG_HS_IRQ, 64);
-	int i = 0;
 
 	OTG_HS_GAHBCFG &=~ OTG_GAHBCFG_GINT; 
 	OTG_HS_GINTSTS = OTG_GINTSTS_MMIS;
@@ -88,7 +87,7 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_PHYC_TUNE |= 0x00000F13U;
 	OTG_HS_PHYC_PLL1 |= OTG_PHYC_PLL1_ENABLE;
 	/* 2ms Delay required to get internal phy clock stable */
-	HAL_Delay(2U);
+	//HAL_Delay(2U);
 
 	while (!(OTG_HS_GRSTCTL & OTG_GRSTCTL_AHBIDL))
 		;
@@ -98,10 +97,10 @@ static usbd_device *stm32f207_usbd_init(void)
 
 	////OTG_HS_GCCFG |= OTG_GCCFG_PWRDWN;//???
 	OTG_HS_GUSBCFG |= OTG_GUSBCFG_FDMOD;
-	HAL_Delay(50U);
+	//HAL_Delay(50U);
 
 	OTG_HS_DCTL |= OTG_DCTL_SDIS;
-	HAL_Delay(10);
+	//HAL_Delay(10);
 
 	OTG_HS_GRSTCTL = OTG_GRSTCTL_TXFFLSH | (0x10 << 6);
 	while (OTG_HS_GRSTCTL & OTG_GRSTCTL_TXFFLSH);
@@ -125,10 +124,11 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_GNPTXFSIZ = (0x80 << 16) | OTG_HS_GRXFSIZ;
 
 	OTG_HS_DCTL &=~ OTG_DCTL_SDIS;
-	HAL_Delay(10U);
+	//HAL_Delay(10U);
 	OTG_HS_GAHBCFG |= OTG_GAHBCFG_GINT;
 
 	return &usbd_dev;
+#endif
 
 #if ORIGINAL_INIT
 	rcc_periph_clock_enable(RCC_OTGHS);
@@ -169,13 +169,41 @@ static usbd_device *stm32f207_usbd_init(void)
 	return &usbd_dev;
 #endif
 
-#if TWEAKED_ORIGINAL_INIT
+#if TWEAKED_ORIGINAL_INIT || 1
+	rcc_periph_clock_enable(RCC_GPIOB);
+	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO14 | GPIO15);
+	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, GPIO14 | GPIO15);
+	gpio_set_af(GPIOB, GPIO_AF12, GPIO14 | GPIO15);
+
+	rcc_periph_clock_enable(RCC_OTGPHYC);
+	rcc_periph_clock_enable(RCC_OTGHSULPI);
+
+	// TODO - check the preemption and subpriority, they are unified here
+	nvic_set_priority(NVIC_OTG_HS_IRQ, 0);
+
 	rcc_periph_clock_enable(RCC_OTGHS);
 	OTG_HS_GINTSTS = OTG_GINTSTS_MMIS;
 
-	OTG_HS_GUSBCFG |= OTG_GUSBCFG_PHYSEL;
+
+
+	// ??? What is this??? It is not documented in the manual
+	OTG_HS_GCCFG |= OTG_GCCFG_PHYHSEN;
+
+	/* ??? The st header files have this:
+	 * #define USB_HS_PHYC_LDO_ENABLE                   USB_HS_PHYC_LDO_DISABLE
+	 * ...go figure...
+	 */
+	OTG_HS_PHYC_LDO |= OTG_PHYC_LDO_DISABLE;
+	while (!(OTG_HS_PHYC_LDO & OTG_PHYC_LDO_STATUS))
+		;
+	/* This setting is for a HSE clock of 25 MHz. */
+	OTG_HS_PHYC_PLL1 = 5 << 1;
+	OTG_HS_PHYC_TUNE |= 0x00000F13U;
+	OTG_HS_PHYC_PLL1 |= OTG_PHYC_PLL1_ENABLE;
+
+	////OTG_HS_GUSBCFG |= OTG_GUSBCFG_PHYSEL;
 	/* Enable VBUS sensing in device mode and power down the PHY. */
-	OTG_HS_GCCFG |= OTG_GCCFG_VBUSBSEN | OTG_GCCFG_PWRDWN;
+	////OTG_HS_GCCFG |= OTG_GCCFG_VBUSBSEN | OTG_GCCFG_PWRDWN;
 
 	/* Wait for AHB idle. */
 	while (!(OTG_HS_GRSTCTL & OTG_GRSTCTL_AHBIDL));
@@ -187,7 +215,7 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_GUSBCFG |= OTG_GUSBCFG_FDMOD | OTG_GUSBCFG_TRDT_MASK;
 
 	/* Full speed device. */
-	OTG_HS_DCFG |= OTG_DCFG_DSPD;
+	////OTG_HS_DCFG |= OTG_DCFG_DSPD;
 
 	/* Restart the PHY clock. */
 	OTG_HS_PCGCCTL = 0;
@@ -195,14 +223,33 @@ static usbd_device *stm32f207_usbd_init(void)
 	OTG_HS_GRXFSIZ = stm32f207_usb_driver.rx_fifo_size;
 	usbd_dev.fifo_mem_top = stm32f207_usb_driver.rx_fifo_size;
 
+	OTG_HS_DCTL |= OTG_DCTL_SDIS;
+
 	/* Unmask interrupts for TX and RX. */
 	OTG_HS_GAHBCFG |= OTG_GAHBCFG_GINT;
 	OTG_HS_GINTMSK = OTG_GINTMSK_ENUMDNEM |
 			 OTG_GINTMSK_RXFLVLM |
 			 OTG_GINTMSK_IEPINT |
+			 OTG_GINTMSK_OEPINT |
+			 //OTG_GINTMSK_USBRST |
 			 OTG_GINTMSK_USBSUSPM |
 			 OTG_GINTMSK_WUIM;
-	OTG_HS_DAINTMSK = 0xF;
-	OTG_HS_DIEPMSK = OTG_DIEPMSK_XFRCM;
+
+	OTG_HS_DAINTMSK = 0xffffffff;
+
+	OTG_HS_DOEPMSK |= OTG_DOEPMSK_STUPM
+		| OTG_DOEPMSK_XFRCM
+		| OTG_DOEPMSK_EPDM
+		| (1 << 5) //OTG_DOEPMSK_OTEPSPRM
+		| (1 << 13) //OTG_DOEPMSK_NAKM
+		;
+	OTG_HS_DIEPMSK |= OTG_DIEPMSK_TOM
+		| OTG_DIEPMSK_XFRCM
+		| OTG_DIEPMSK_EPDM
+		;
+
+	OTG_HS_DCTL &=~ OTG_DCTL_SDIS;
+
+	return &usbd_dev;
 #endif
 }
