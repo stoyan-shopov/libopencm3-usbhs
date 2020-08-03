@@ -168,7 +168,6 @@ endif
 
 clean:
 	rm -rf $(BUILD_DIR) $(GENERATED_BINS)
-	rm -rf build/*
 
 .PHONY: all clean flash
 -include $(OBJS:.o=.d)
