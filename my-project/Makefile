@@ -55,10 +55,6 @@ build/stm32f7xx_hal.o: Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal.c
 XOBJS += build/system_stm32f7xx.o
 build/system_stm32f7xx.o: Src/system_stm32f7xx.c
 	arm-none-eabi-gcc -c -mcpu=cortex-m7 -mthumb -mfpu=fpv5-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32F723xx -IInc -IDrivers/STM32F7xx_HAL_Driver/Inc -IDrivers/STM32F7xx_HAL_Driver/Inc/Legacy -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc -IDrivers/CMSIS/Device/ST/STM32F7xx/Include -IDrivers/CMSIS/Include -IDrivers/CMSIS/Include -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF"build/system_stm32f7xx.d" -Wa,-a,-ad,-alms=build/system_stm32f7xx.lst Src/system_stm32f7xx.c -o build/system_stm32f7xx.o
-XOBJS += build/main.o
-build/main.o: Src/main.c
-	arm-none-eabi-gcc -c -mcpu=cortex-m7 -mthumb -mfpu=fpv5-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32F723xx -IInc -IDrivers/STM32F7xx_HAL_Driver/Inc -IDrivers/STM32F7xx_HAL_Driver/Inc/Legacy -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc -IDrivers/CMSIS/Device/ST/STM32F7xx/Include -IDrivers/CMSIS/Include -IDrivers/CMSIS/Include -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF"build/main.d" -Wa,-a,-ad,-alms=build/main.lst Src/main.c -o build/main.o
-
 
 XOBJS += build/usbd_core.o
 build/usbd_core.o: Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c
@@ -75,6 +71,7 @@ build/usbd_cdc.o: Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc
 
 CFILES += my-project.c
 CFILES += cdcacm.c
+CFILES += Src/main.c
 
 
 # CFILES = Src/main.c
