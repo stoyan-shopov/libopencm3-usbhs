@@ -85,7 +85,7 @@ void dwc_ep_setup(usbd_device *usbd_dev, uint8_t addr, uint8_t type,
 		REBASE(OTG_DIEPTSIZ0) =
 			(max_size & OTG_DIEPSIZ0_XFRSIZ_MASK);
 		REBASE(OTG_DIEPCTL0) |=
-			OTG_DIEPCTL0_EPENA | OTG_DIEPCTL0_SNAK;
+			/* OTG_DIEPCTL0_EPENA | */OTG_DIEPCTL0_SNAK;
 
 		/* Configure OUT part. */
 		usbd_dev->doeptsiz[0] = OTG_DIEPSIZ0_STUPCNT_1 |
