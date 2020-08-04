@@ -2,6 +2,7 @@
  * This file is part of the libopencm3 project.
  *
  * Copyright (C) 2011 Gareth McMullin <gareth@blacksphere.co.nz>
+ * Copyright (C) 2020 Stoyan Shopov <stoyan.shopov@gmail.com>
  *
  * This library is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -30,6 +31,30 @@
 #define dev_base_address (usbd_dev->driver->base_address)
 #define REBASE(x)        MMIO32((x) + (dev_base_address))
 
+/* TODO: this does not belong here; maybe add it as a new field in the driver structure */
+enum
+{
+	ENDPOINT_COUNT		= 9,
+	MAX_BULK_PACKET_SIZE	= 512,
+};
+
+/* Note: (shopov - 04082020) - the original 'usb_dwc_common.c' source code
+ * handles incoming OUT and SETUP uab packets as soon as they are available
+ * in the packet FIFO. However, this is causing some races with the usb core
+ * hardware. I inspected the stm-cube sources, and there, the incoming IN and
+ * SETUP packets are handled only when a XFRC - transfer complete interrupt is
+ * received - this avoids races with the usb core hardware. However, for that
+ * to work, it is needed that the packets are read from the usb FIFO packet
+ * memory in some temporary storage, and are handed to the upper usb layers only
+ * when the corresponding XFRC interrupts are received. This means that some temporary
+ * storage is necessary, so this variable serves this purpose.
+ */
+static struct incoming_packet
+{
+	bool	is_packet_present;
+	int	packet_length;
+	uint8_t	packet_data[MAX_BULK_PACKET_SIZE];
+} stashed_packets[ENDPOINT_COUNT];
 
 void dwc_set_address(usbd_device *usbd_dev, uint8_t addr)
 {
@@ -120,7 +145,7 @@ void dwc_endpoints_reset(usbd_device *usbd_dev)
 	usbd_dev->fifo_mem_top = usbd_dev->fifo_mem_top_ep0;
 
 	/* Disable any currently active endpoints */
-	for (i = 1; i < 4; i++) {
+	for (i = 1; i < ENDPOINT_COUNT; i++) {
 		if (REBASE(OTG_DOEPCTL(i)) & OTG_DOEPCTL0_EPENA) {
 			REBASE(OTG_DOEPCTL(i)) |= OTG_DOEPCTL0_EPDIS;
 		}
@@ -242,115 +267,51 @@ uint16_t dwc_ep_write_packet(usbd_device *usbd_dev, uint8_t addr,
 	return len;
 }
 
-static bool packet_armed = false;
-static int usb_len;
-static uint8_t usb_buf[1024];
-
-
-
 uint16_t dwc_ep_read_packet(usbd_device *usbd_dev, uint8_t addr,
 				  void *buf, uint16_t len)
 {
-	if (!packet_armed)
-		while(1);
-	packet_armed = false;
-	memcpy(buf, usb_buf, usb_len);
-	return usb_len;
-}
-
-uint16_t dwc_ep_read_packet_internal(usbd_device *usbd_dev)
-{
-	int i;
-	uint32_t *buf32 = usb_buf;
-	uint32_t extra;
-	uint16_t len = sizeof usb_buf;
-	if (packet_armed)
-		while(1);
-
-	len = MIN(len, usbd_dev->rxbcnt);
-
-	/* ARMv7M supports non-word-aligned accesses, ARMv6M does not. */
-	for (i = len; i >= 4; i -= 4) {
-		*buf32++ = REBASE(OTG_FIFO(0));
-		usbd_dev->rxbcnt -= 4;
-	}
-
-	if (i) {
-		extra = REBASE(OTG_FIFO(0));
-		/* we read 4 bytes from the fifo, so update rxbcnt */
-		if (usbd_dev->rxbcnt < 4) {
-			/* Be careful not to underflow (rxbcnt is unsigned) */
-			usbd_dev->rxbcnt = 0;
-		} else {
-			usbd_dev->rxbcnt -= 4;
-		}
-		memcpy(buf32, &extra, i);
-	}
-	packet_armed = true;
-
-	return usb_len = len;
-}
-
-
-
-
-uint16_t dwc_ep_read_packet_original(usbd_device *usbd_dev, uint8_t addr,
-				  void *buf, uint16_t len)
-{
-	int i;
-	uint32_t *buf32 = buf;
-#if defined(__ARM_ARCH_6M__)
-	uint8_t *buf8 = buf;
-	uint32_t word32;
-#endif /* defined(__ARM_ARCH_6M__) */
-	uint32_t extra;
-
-	/* We do not need to know the endpoint address since there is only one
-	 * receive FIFO for all endpoints.
-	 */
-	(void) addr;
-	len = MIN(len, usbd_dev->rxbcnt);
-
-	/* ARMv7M supports non-word-aligned accesses, ARMv6M does not. */
-#if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
-	for (i = len; i >= 4; i -= 4) {
-		*buf32++ = REBASE(OTG_FIFO(0));
-		usbd_dev->rxbcnt -= 4;
-	}
-#endif /* defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__) */
-
-#if defined(__ARM_ARCH_6M__)
-	/* Take care of word-aligned and non-word-aligned buffers */
-	if (((uint32_t)buf8 & 0x3) == 0) {
-		for (i = len; i >= 4; i -= 4) {
-			*buf32++ = REBASE(OTG_FIFO(0));
-			usbd_dev->rxbcnt -= 4;
-		}
-	} else {
-		for (i = len; i >= 4; i -= 4) {
-			word32 = REBASE(OTG_FIFO(0));
-			memcpy(buf8, &word32, 4);
-			usbd_dev->rxbcnt -= 4;
-			buf8 += 4;
-		}
-		/* buf32 needs to be updated as it is used for extra */
-		buf32 = (uint32_t *)buf8;
-	}
-#endif /* defined(__ARM_ARCH_6M__) */
-
-	if (i) {
-		extra = REBASE(OTG_FIFO(0));
-		/* we read 4 bytes from the fifo, so update rxbcnt */
-		if (usbd_dev->rxbcnt < 4) {
-			/* Be careful not to underflow (rxbcnt is unsigned) */
-			usbd_dev->rxbcnt = 0;
-		} else {
-			usbd_dev->rxbcnt -= 4;
-		}
-		memcpy(buf32, &extra, i);
-	}
-
+	(void) usbd_dev;
+	struct incoming_packet * packet = stashed_packets + addr;
+	if (!packet->is_packet_present)
+		return 0;
+	len = MIN(len, packet->packet_length);
+	packet->is_packet_present = false;
+	memcpy(buf, packet->packet_data, len);
 	return len;
+}
+
+/* TODO: this does not currently handle the case for __ARM_ARCH_6M__ */
+void dwc_ep_read_packet_internal(usbd_device *usbd_dev, int ep);
+void dwc_ep_read_packet_internal(usbd_device *usbd_dev, int ep)
+{
+	int i;
+	struct incoming_packet * packet = stashed_packets + ep;
+	uint32_t *buf32 = (uint32_t *) packet->packet_data;
+	uint32_t extra;
+	uint16_t len = sizeof packet->packet_data;
+
+	len = MIN(len, usbd_dev->rxbcnt);
+
+	/* ARMv7M supports non-word-aligned accesses, ARMv6M does not. */
+	for (i = len; i >= 4; i -= 4) {
+		*buf32++ = REBASE(OTG_FIFO(0));
+		usbd_dev->rxbcnt -= 4;
+	}
+
+	if (i) {
+		extra = REBASE(OTG_FIFO(0));
+		/* we read 4 bytes from the fifo, so update rxbcnt */
+		if (usbd_dev->rxbcnt < 4) {
+			/* Be careful not to underflow (rxbcnt is unsigned) */
+			usbd_dev->rxbcnt = 0;
+		} else {
+			usbd_dev->rxbcnt -= 4;
+		}
+		memcpy(buf32, &extra, i);
+	}
+	packet->is_packet_present = true;
+
+	packet->packet_length = len;
 }
 
 static void dwc_flush_txfifo(usbd_device *usbd_dev, int ep)
@@ -399,7 +360,7 @@ void dwc_poll(usbd_device *usbd_dev)
 	 * There is no global interrupt flag for transmit complete.
 	 * The XFRC bit must be checked in each OTG_DIEPINT(x).
 	 */
-	for (i = 0; i < 4; i++) { /* Iterate over endpoints. */
+	for (i = 0; i < ENDPOINT_COUNT; i++) { /* Iterate over endpoints. */
 		if (REBASE(OTG_DIEPINT(i)) & OTG_DIEPINTX_XFRC) {
 			/* Transfer complete. */
 			REBASE(OTG_DIEPINT(i)) = OTG_DIEPINTX_XFRC;
@@ -420,20 +381,21 @@ void dwc_poll(usbd_device *usbd_dev)
 
 		/* Save packet size for dwc_ep_read_packet(). */
 		usbd_dev->rxbcnt = (rxstsp & OTG_GRXSTSP_BCNT_MASK) >> 4;
+		struct incoming_packet * packet = stashed_packets + ep;
 
 		if (pktsts == OTG_GRXSTSP_PKTSTS_OUT /* 2 */)
 		{
 			if (usbd_dev->rxbcnt)
-				dwc_ep_read_packet_internal(usbd_dev);
+				dwc_ep_read_packet_internal(usbd_dev, ep);
 			else
-				packet_armed = true, usb_len = 0;
+				packet->is_packet_present = true, packet->packet_length = 0;
 		}
 		else if (pktsts == OTG_GRXSTSP_PKTSTS_SETUP /* 6 */)
 		{
 			if (usbd_dev->rxbcnt)
-				dwc_ep_read_packet_internal(usbd_dev);
+				dwc_ep_read_packet_internal(usbd_dev, ep);
 			else
-				packet_armed = true, usb_len = 0;
+				packet->is_packet_present = true, packet->packet_length = 0;
 		}
 	}
 
@@ -468,7 +430,7 @@ void dwc_poll(usbd_device *usbd_dev)
 	{
 		uint32_t daint = REBASE(OTG_DAINT);
 		int epnum;
-		for (epnum = 0; epnum <= 8; epnum ++)
+		for (epnum = 0; epnum < ENDPOINT_COUNT; epnum ++)
 			if (daint & (1 << (16 + epnum)))
 			{
 				uint32_t t = REBASE(OTG_DOEPINT(epnum));
