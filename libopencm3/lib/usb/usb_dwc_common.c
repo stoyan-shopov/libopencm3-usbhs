@@ -24,35 +24,12 @@
 #include "usb_private.h"
 #include "usb_dwc_common.h"
 
-#include <libopencm3/stm32/timer.h>
-
-#include <libopencm3/tracelog.h>
-
 /* The FS core and the HS core have the same register layout.
  * As the code can be used on both cores, the registers offset is modified
  * according to the selected cores base address. */
 #define dev_base_address (usbd_dev->driver->base_address)
 #define REBASE(x)        MMIO32((x) + (dev_base_address))
 
-enum
-{
-	FRAME_COUNT	= 1024,
-};
-static volatile struct trace_frame
-{
-	enum TRACE_FRAME_TYPE type;
-	uint32_t	time;
-	uint32_t	data;
-}
-trace_frames[FRAME_COUNT];
-static int frame_index;
-
-void log_trace_frame(enum TRACE_FRAME_TYPE type, uint32_t data)
-{
-	if (frame_index >= FRAME_COUNT)
-		return;
-	trace_frames[frame_index ++] = (struct trace_frame) { .type = type, .time = TIM2_CNT, .data = data, };
-}
 
 void dwc_set_address(usbd_device *usbd_dev, uint8_t addr)
 {
@@ -204,8 +181,6 @@ void dwc_ep_nak_set(usbd_device *usbd_dev, uint8_t addr, uint8_t nak)
 	if (addr & 0x80) {
 		return;
 	}
-
-log_trace_frame(TR_SET_NAK, nak);
 
 	usbd_dev->force_nak[addr] = nak;
 
@@ -402,49 +377,21 @@ static void dwc_flush_txfifo(usbd_device *usbd_dev, int ep)
 	}
 }
 
-volatile xxx;
-volatile uint32_t mask;
-volatile uint32_t xmask;
 void dwc_poll(usbd_device *usbd_dev)
 {
 	/* Read interrupt status register. */
 	uint32_t intsts = REBASE(OTG_GINTSTS);
-	mask = REBASE(OTG_GINTMSK);
-	xmask = intsts & mask;
-
-log_trace_frame(TR_IRQ_ENTER, xmask);
-
+	if (!(intsts & REBASE(OTG_GINTMSK)))
+		/* No interrupts to handle - can happen if this function is
+		 * not invoked from the usb interrupt handler. */
+		 return;
 	int i;
-
-	if (intsts)
-		xxx ++;
-#if 0
-	if (intsts & OTG_GINTSTS_USBRST) {
-		REBASE(OTG_DCTL) &=~ OTG_DCTL_RWUSIG;
-		REBASE(OTG_DAINTMSK) = 0xffffffff;
-
-		REBASE(OTG_DOEPMSK) |= OTG_DOEPMSK_STUPM
-			| OTG_DOEPMSK_XFRCM
-			| OTG_DOEPMSK_EPDM
-			| (1 << 5) //OTG_DOEPMSK_OTEPSPRM
-			| (1 << 13) //OTG_DOEPMSK_NAKM
-			;
-		REBASE(OTG_DIEPMSK) |= OTG_DIEPMSK_TOM
-			| OTG_DIEPMSK_XFRCM
-			| OTG_DIEPMSK_EPDM
-			;
-
-		REBASE(OTG_DCFG) &=~ OTG_DCFG_DAD;
-		REBASE(OTG_GINTSTS) = OTG_GINTSTS_USBRST;
-	}
-#endif
 
 	if (intsts & OTG_GINTSTS_ENUMDNE) {
 		/* Handle USB RESET condition. */
 		REBASE(OTG_GINTSTS) = OTG_GINTSTS_ENUMDNE;
 		usbd_dev->fifo_mem_top = usbd_dev->driver->rx_fifo_size;
 		_usbd_reset(usbd_dev);
-log_trace_frame(TR_IRQ_EXIT, __LINE__);
 		return;
 	}
 
@@ -455,7 +402,6 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 	for (i = 0; i < 4; i++) { /* Iterate over endpoints. */
 		if (REBASE(OTG_DIEPINT(i)) & OTG_DIEPINTX_XFRC) {
 			/* Transfer complete. */
-log_trace_frame(TR_IN_PACKET_SENT, i);
 			REBASE(OTG_DIEPINT(i)) = OTG_DIEPINTX_XFRC;
 			if (usbd_dev->user_callback_ctr[i]
 						       [USB_TRANSACTION_IN]) {
@@ -491,78 +437,6 @@ log_trace_frame(TR_IN_PACKET_SENT, i);
 		}
 	}
 
-#if 0
-
-	/* Note: RX and TX handled differently in this device. */
-	if (intsts & OTG_GINTSTS_RXFLVL) {
-log_trace_frame(TR_PACKET_DATA_AVAILABLE, i);
-
-//REBASE(OTG_GINTMSK) &=~ OTG_GINTMSK_RXFLVLM;
-
-		/* Receive FIFO non-empty. */
-		uint32_t rxstsp = REBASE(OTG_GRXSTSP);
-		uint32_t pktsts = rxstsp & OTG_GRXSTSP_PKTSTS_MASK;
-		uint8_t ep = rxstsp & OTG_GRXSTSP_EPNUM_MASK;
-		// shopov: arm next out transaction - THIS SHOULD NOT BE DONE HERE!!!
-		if (pktsts == OTG_GRXSTSP_PKTSTS_OUT_COMP /* 3 */
-				|| pktsts == OTG_GRXSTSP_PKTSTS_SETUP_COMP /* 4 */)  {
-log_trace_frame(TR_OUT_PACKET_COMPLETE, ep);
-
-#if 1			
-			REBASE(OTG_DOEPTSIZ(ep)) = usbd_dev->doeptsiz[ep];
-			REBASE(OTG_DOEPCTL(ep)) |= OTG_DOEPCTL0_EPENA |
-
-				(usbd_dev->force_nak[ep] ?
-				 OTG_DOEPCTL0_SNAK : OTG_DOEPCTL0_CNAK);
-//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
-#endif
-log_trace_frame(TR_IRQ_EXIT, __LINE__);
-			return;
-		}
-
-		if ((pktsts != OTG_GRXSTSP_PKTSTS_OUT /* 2 */) &&
-		    (pktsts != OTG_GRXSTSP_PKTSTS_SETUP /* 6 */)) {
-//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
-log_trace_frame(TR_IRQ_EXIT, __LINE__);
-			return;
-		}
-
-		uint8_t type;
-		if (pktsts == OTG_GRXSTSP_PKTSTS_SETUP /* 6 */) {
-			type = USB_TRANSACTION_SETUP;
-		} else {
-			type = USB_TRANSACTION_OUT;
-		}
-
-		if (type == USB_TRANSACTION_SETUP
-			&& (REBASE(OTG_DIEPTSIZ(ep)) & OTG_DIEPSIZ0_PKTCNT)) {
-			/* SETUP received but there is still something stuck
-			 * in the transmit fifo.  Flush it.
-			 */
-			while (1);
-			dwc_flush_txfifo(usbd_dev, ep);
-		}
-
-		/* Save packet size for dwc_ep_read_packet(). */
-		usbd_dev->rxbcnt = (rxstsp & OTG_GRXSTSP_BCNT_MASK) >> 4;
-
-		if (usbd_dev->user_callback_ctr[ep][type]) {
-			usbd_dev->user_callback_ctr[ep][type] (usbd_dev, ep);
-		}
-
-		if (usbd_dev->rxbcnt)
-			while (1);
-		/* Discard unread packet data. */
-		for (i = 0; i < usbd_dev->rxbcnt; i += 4) {
-			/* There is only one receive FIFO, so use OTG_FIFO(0) */
-			(void)REBASE(OTG_FIFO(0));
-		}
-
-		usbd_dev->rxbcnt = 0;
-//REBASE(OTG_GINTMSK) |= OTG_GINTMSK_RXFLVLM;
-	}
-#endif
-
 	if (intsts & OTG_GINTSTS_USBSUSP) {
 		if (usbd_dev->user_callback_suspend) {
 			usbd_dev->user_callback_suspend();
@@ -597,10 +471,8 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 		for (epnum = 0; epnum <= 8; epnum ++)
 			if (daint & (1 << (16 + epnum)))
 			{
-				log_trace_frame(TR_DOEPINT_EPNUM, epnum);
 				uint32_t t = REBASE(OTG_DOEPINT(epnum));
 				REBASE(OTG_DOEPINT(epnum)) = t;
-				log_trace_frame(TR_DOEPINT, t);
 
 				if (t & (1 << 0) /* xfrc */)
 				{
@@ -635,7 +507,6 @@ log_trace_frame(TR_IRQ_EXIT, __LINE__);
 			}
 	}
 
-log_trace_frame(TR_IRQ_EXIT, __LINE__);
 }
 
 void dwc_disconnect(usbd_device *usbd_dev, bool disconnected)

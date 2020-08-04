@@ -37,7 +37,6 @@ LGPL License Terms @ref lgpl_license
 
 #include <stdlib.h>
 #include <libopencm3/usb/usbd.h>
-#include <libopencm3/tracelog.h>
 #include "usb_private.h"
 
 /*
@@ -47,7 +46,6 @@ LGPL License Terms @ref lgpl_license
  */
 static void stall_transaction(usbd_device *usbd_dev)
 {
-log_trace_frame(TR_STALL_SET, 0);
 	usbd_ep_stall_set(usbd_dev, 0, 1);
 	usbd_dev->control_state.state = IDLE;
 }
@@ -166,14 +164,9 @@ usb_control_request_dispatch(usbd_device *usbd_dev,
 	}
 
 	/* Try standard request if not already handled. */
-	result = _usbd_standard_request(usbd_dev, req,
+	return _usbd_standard_request(usbd_dev, req,
 				      &(usbd_dev->control_state.ctrl_buf),
 				      &(usbd_dev->control_state.ctrl_len));
-	if (result == USBD_REQ_HANDLED)
-log_trace_frame(TR_USB_CONTROL_STANDARD_REQ_HANDLED, usbd_dev->control_state.ctrl_len);
-	else
-log_trace_frame(TR_USB_CONTROL_STANDARD_REQ_NOT_HANDLED, 0);
-	return result;
 }
 
 /* Handle commands and read requests. */
@@ -239,10 +232,6 @@ void _usbd_control_setup(usbd_device *usbd_dev, uint8_t ea)
 		stall_transaction(usbd_dev);
 		return;
 	}
-
-log_trace_frame(TR_CONTROL_SETUP, (req->bmRequestType << 24) | (req->bRequest << 16) | req->wValue);
-log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
-
 	if (req->wLength == 0) {
 		usb_control_setup_read(usbd_dev, req);
 	} else if (req->bmRequestType & 0x80) {
@@ -254,13 +243,10 @@ log_trace_frame(TR_CONTROL_SETUP_DETAILS, (req->wIndex << 16) | req->wLength);
 
 void _usbd_control_out(usbd_device *usbd_dev, uint8_t ea)
 {
-log_trace_frame(TR_CONTROL_OUT, usbd_dev->control_state.state);
-
 	(void)ea;
 
 	switch (usbd_dev->control_state.state) {
 	case DATA_OUT:
-log_trace_frame(TR_DATA_OUT, 0);
 		if (usb_control_recv_chunk(usbd_dev) < 0) {
 			break;
 		}
@@ -271,7 +257,6 @@ log_trace_frame(TR_DATA_OUT, 0);
 		}
 		break;
 	case LAST_DATA_OUT:
-log_trace_frame(TR_LAST_DATA_OUT, 0);
 		if (usb_control_recv_chunk(usbd_dev) < 0) {
 			break;
 		}
@@ -289,7 +274,6 @@ log_trace_frame(TR_LAST_DATA_OUT, 0);
 		}
 		break;
 	case STATUS_OUT:
-log_trace_frame(TR_STATUS_OUT, 0);
 		usbd_ep_read_packet(usbd_dev, 0, NULL, 0);
 		usbd_dev->control_state.state = IDLE;
 		if (usbd_dev->control_state.complete) {
@@ -305,23 +289,18 @@ log_trace_frame(TR_STATUS_OUT, 0);
 
 void _usbd_control_in(usbd_device *usbd_dev, uint8_t ea)
 {
-log_trace_frame(TR_CONTROL_IN, usbd_dev->control_state.state);
-
 	(void)ea;
 	struct usb_setup_data *req = &(usbd_dev->control_state.req);
 
 	switch (usbd_dev->control_state.state) {
 	case DATA_IN:
-log_trace_frame(TR_DATA_IN, 0);
 		usb_control_send_chunk(usbd_dev);
 		break;
 	case LAST_DATA_IN:
-log_trace_frame(TR_LAST_DATA_IN, 0);
 		usbd_dev->control_state.state = STATUS_OUT;
 		usbd_ep_nak_set(usbd_dev, 0, 0);
 		break;
 	case STATUS_IN:
-log_trace_frame(TR_STATUS_IN, 0);
 		if (usbd_dev->control_state.complete) {
 			usbd_dev->control_state.complete(usbd_dev,
 					&(usbd_dev->control_state.req));
