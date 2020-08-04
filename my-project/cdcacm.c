@@ -250,7 +250,7 @@ int main(void)
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOH);
 
-	usbd_dev = usbd_init(&stm32f207_usb_driver, &dev, &config,
+	usbd_dev = usbd_init(&stm32f723_usb_driver, &dev, &config,
 		usb_strings, 3,
 			usbd_control_buffer, sizeof(usbd_control_buffer));
 

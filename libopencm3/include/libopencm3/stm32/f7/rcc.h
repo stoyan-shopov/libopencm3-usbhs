@@ -749,7 +749,9 @@ enum rcc_periph_clken {
 	RCC_SAI1EN	= _REG_BIT(0x44, 22),
 	RCC_SAI2EN	= _REG_BIT(0x44, 23),
 	RCC_LTDC	= _REG_BIT(0x44, 26),
-	//XXX - shopov added
+	
+	/* STM32F7x3xx and STM32F730xx devices have an internal usb high-speed
+	 * usb phy controller */
 	RCC_OTGPHYC	= _REG_BIT(0x44, 31),
 
 

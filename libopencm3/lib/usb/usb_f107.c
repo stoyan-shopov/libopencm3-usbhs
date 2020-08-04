@@ -53,7 +53,6 @@ const struct _usbd_driver stm32f107_usb_driver = {
 /** Initialize the USB device controller hardware of the STM32. */
 static usbd_device *stm32f107_usbd_init(void)
 {
-	return &usbd_dev;
 	rcc_periph_clock_enable(RCC_OTGFS);
 	OTG_FS_GUSBCFG |= OTG_GUSBCFG_PHYSEL;
 
