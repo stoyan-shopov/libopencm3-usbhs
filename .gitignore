@@ -3,4 +3,5 @@ bin/
 *.bin
 *.[od]
 *.lst
+*.bak
 generated.*.ld
