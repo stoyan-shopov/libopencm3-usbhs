@@ -23,6 +23,11 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/cm3/nvic.h>
+
+#include <string.h>
 
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
@@ -175,53 +180,47 @@ static enum usbd_request_return_codes cdcacm_control_request(usbd_device *usbd_d
 	struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
 	void (**complete)(usbd_device *usbd_dev, struct usb_setup_data *req))
 {
-static uint8_t xbuf[7];
+	static uint8_t xbuf[7];
 	(void)complete;
 	(void)buf;
 	(void)usbd_dev;
 
 	switch (req->bRequest) {
-	case USB_CDC_REQ_SET_CONTROL_LINE_STATE: {
-		/*
-		 * This Linux cdc_acm driver requires this to be implemented
-		 * even though it's optional in the CDC spec, and we don't
-		 * advertise it in the ACM functional descriptor.
-		 */
-		return USBD_REQ_HANDLED;
-		}
-	case 0x21:
-		 /* get line coding */
-		 memcpy(*buf, xbuf, 7);
-		return USBD_REQ_HANDLED;
-	case 0x20:
-#if 0
-	case USB_CDC_REQ_SET_LINE_CODING:
-		if (*len < sizeof(struct usb_cdc_line_coding)) {
-			return USBD_REQ_NOTSUPP;
-		}
-#endif
-		memcpy(xbuf, *buf, 7);
+		case USB_CDC_REQ_SET_CONTROL_LINE_STATE: {
+								 /*
+								  * This Linux cdc_acm driver requires this to be implemented
+								  * even though it's optional in the CDC spec, and we don't
+								  * advertise it in the ACM functional descriptor.
+								  */
+								 return USBD_REQ_HANDLED;
+							 }
+		case 0x21:
+							 /* get line coding */
+							 if (* len != 7)
+								 return USBD_REQ_NOTSUPP;
+							 memcpy(*buf, xbuf, 7);
+							 return USBD_REQ_HANDLED;
+		case 0x20:
+							 memcpy(xbuf, *buf, 7);
 
-		return USBD_REQ_HANDLED;
+							 return USBD_REQ_HANDLED;
 	}
 	return USBD_REQ_NOTSUPP;
 }
 
 char buf[XSIZE];
 volatile unsigned read_total;
-volatile busy_count;
+volatile int busy_count;
 static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
 
 	int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, XSIZE);
-#if SHOPOV || 1
 	if (len) {
 		read_total += len;
 		while (usbd_ep_write_packet(usbd_dev, 0x81, buf, len) == 0)
 			busy_count ++;
 	}
-#endif
 }
 
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
@@ -241,31 +240,30 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 }
 
 usbd_device *usbd_dev;
-int xmain(void)
+int main(void)
 {
-#if 0
+	/* if this does not get incremented, it is possible that some usb interrupt flag is not handled,
+	 * and the usb interrupt handler gets continuously invoked. */
+	volatile int i;
+	rcc_periph_clock_enable(RCC_APB2ENR_SYSCFGEN);
+	rcc_clock_setup_hse(rcc_3v3 + RCC_CLOCK_3V3_216MHZ, 25000000);
+	rcc_periph_clock_enable(RCC_GPIOB);
+	rcc_periph_clock_enable(RCC_GPIOH);
 
-	rcc_clock_setup_pll(&rcc_hse_8mhz_3v3[RCC_CLOCK_3V3_168MHZ]);
-
-	rcc_periph_clock_enable(RCC_GPIOA);
-	rcc_periph_clock_enable(RCC_OTGFS);
-
-	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO11 | GPIO12);
-	gpio_set_af(GPIOA, GPIO_AF10, GPIO11 | GPIO12);
-#endif
-
-	usbd_dev = usbd_init(&otghs_usb_driver, &dev, &config,
-			usb_strings, 3,
+	usbd_dev = usbd_init(&stm32f207_usb_driver, &dev, &config,
+		usb_strings, 3,
 			usbd_control_buffer, sizeof(usbd_control_buffer));
 
 	usbd_register_set_config_callback(usbd_dev, cdcacm_set_config);
 
-	while (0) {
-		usbd_poll(usbd_dev);
+	nvic_enable_irq(NVIC_OTG_HS_IRQ);
+
+	while (1) {
+		i ++;
 	}
 }
 
-void xusb_poll()
+void otg_hs_isr()
 {
 	usbd_poll(usbd_dev);
 }
