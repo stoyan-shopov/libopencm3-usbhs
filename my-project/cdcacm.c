@@ -29,6 +29,19 @@
 
 #include <string.h>
 
+enum
+{
+	/* WARNING: at this time, data IN endpoint sizes *must* equal the corresponding data OUT endpoint sizes. */
+	CDCACM_INTERFACE_0_DATA_IN_ENDPOINT			= 0x81,
+	CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE		= 512,
+	CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT			= 0x01,
+	CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE		= CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE,
+	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT		= 0x82,
+	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT_SIZE	= 16,
+
+	MAX_USB_PACKET_SIZE,
+};
+
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
 	.bDescriptorType = USB_DT_DEVICE,
@@ -36,6 +49,7 @@ static const struct usb_device_descriptor dev = {
 	.bDeviceClass = USB_CLASS_CDC,
 	.bDeviceSubClass = 2,
 	.bDeviceProtocol = 0,
+	/* The size of the control endpoint for usb high speed devices *must* be 64, as dictated by the usb standard. */
 	.bMaxPacketSize0 = 64,
 	.idVendor = 0x0483,
 	.idProduct = 0x5740,
@@ -54,27 +68,25 @@ static const struct usb_device_descriptor dev = {
 static const struct usb_endpoint_descriptor comm_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x82,
+	.bEndpointAddress = CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT,
 	.bmAttributes = USB_ENDPOINT_ATTR_INTERRUPT,
-	.wMaxPacketSize = 16,
+	.wMaxPacketSize = CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT_SIZE,
 	.bInterval = 255,
 } };
-
-#define XSIZE	512
 
 static const struct usb_endpoint_descriptor data_endp[] = {{
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x01,
+	.bEndpointAddress = CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT,
 	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
-	.wMaxPacketSize = XSIZE,
+	.wMaxPacketSize = CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE,
 	.bInterval = 1,
 }, {
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x81,
+	.bEndpointAddress = CDCACM_INTERFACE_0_DATA_IN_ENDPOINT,
 	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
-	.wMaxPacketSize = XSIZE,
+	.wMaxPacketSize = CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE,
 	.bInterval = 1,
 } };
 
@@ -208,29 +220,31 @@ static enum usbd_request_return_codes cdcacm_control_request(usbd_device *usbd_d
 	return USBD_REQ_NOTSUPP;
 }
 
-char buf[XSIZE];
+char buf[MAX_USB_PACKET_SIZE];
 volatile unsigned read_total;
 volatile int busy_count;
 static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
 	(void)ep;
 
-	int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, XSIZE);
+	int len = usbd_ep_read_packet(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT, buf, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE);
 	if (len) {
 		read_total += len;
-		while (usbd_ep_write_packet(usbd_dev, 0x81, buf, len) == 0)
+		while (usbd_ep_write_packet(usbd_dev, CDCACM_INTERFACE_0_DATA_IN_ENDPOINT, buf, len) == 0)
 			busy_count ++;
 	}
+	accept_out_packets_on_endpoint(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT);
 }
 
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 {
 	(void)wValue;
 
-	usbd_ep_setup(usbd_dev, 0x01, USB_ENDPOINT_ATTR_BULK, XSIZE,
+	usbd_ep_setup(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT, USB_ENDPOINT_ATTR_BULK, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE,
 			cdcacm_data_rx_cb);
-	usbd_ep_setup(usbd_dev, 0x81, USB_ENDPOINT_ATTR_BULK, XSIZE, NULL);
-	usbd_ep_setup(usbd_dev, 0x82, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
+	accept_out_packets_on_endpoint(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT);
+	usbd_ep_setup(usbd_dev, CDCACM_INTERFACE_0_DATA_IN_ENDPOINT, USB_ENDPOINT_ATTR_BULK, CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE, NULL);
+	usbd_ep_setup(usbd_dev, CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT, USB_ENDPOINT_ATTR_INTERRUPT, CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT_SIZE, NULL);
 
 	usbd_register_control_callback(
 				usbd_dev,
