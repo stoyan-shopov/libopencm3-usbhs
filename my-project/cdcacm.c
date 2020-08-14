@@ -26,6 +26,7 @@
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/cm3/nvic.h>
+#include <libopencm3/cm3/cortex.h>
 
 #include <string.h>
 
@@ -40,7 +41,26 @@ enum
 	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT_SIZE	= 16,
 
 	MAX_USB_PACKET_SIZE					= 512,
+	CDCACM_INTERFACE_COUNT					= 1,
 };
+
+static struct
+{
+	int		out_epnum;
+	int		in_epnum;
+	uint8_t		buf[MAX_USB_PACKET_SIZE];
+	int		len;
+}
+incoming_usb_data[CDCACM_INTERFACE_COUNT] =
+{
+	{
+		.out_epnum		= CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT,
+		.in_epnum		= CDCACM_INTERFACE_0_DATA_IN_ENDPOINT,
+		.len		= 0,
+	},
+};
+static unsigned avaiable_incoming_endpoints;
+
 
 static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
@@ -220,20 +240,19 @@ static enum usbd_request_return_codes cdcacm_control_request(usbd_device *usbd_d
 	return USBD_REQ_NOTSUPP;
 }
 
-char buf[MAX_USB_PACKET_SIZE];
-volatile unsigned read_total;
-volatile int busy_count;
 static void cdcacm_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
-	(void)ep;
+int i;
+	/* Locate endpoint data. */
+	for (i = 0; i < CDCACM_INTERFACE_COUNT; i ++)
+		if (incoming_usb_data[i].out_epnum == ep)
+			break;
+	if (i == CDCACM_INTERFACE_COUNT)
+		/* Endpoint not found. */
+		return;
 
-	int len = usbd_ep_read_packet(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT, buf, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE);
-	if (len) {
-		read_total += len;
-		while (usbd_ep_write_packet(usbd_dev, CDCACM_INTERFACE_0_DATA_IN_ENDPOINT, buf, len) == 0)
-			busy_count ++;
-	}
-	accept_out_packets_on_endpoint(usbd_dev, CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT);
+	incoming_usb_data[i].len = usbd_ep_read_packet(usbd_dev, ep, incoming_usb_data[i].buf, MAX_USB_PACKET_SIZE);
+	avaiable_incoming_endpoints |= 1 << i;
 }
 
 static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
@@ -273,7 +292,29 @@ int main(void)
 	nvic_enable_irq(NVIC_OTG_HS_IRQ);
 
 	while (1) {
-		i ++;
+		cm_disable_interrupts();
+		if (avaiable_incoming_endpoints)
+		{
+			cm_enable_interrupts();
+			uint8_t buf[MAX_USB_PACKET_SIZE];
+			int len;
+			for (i = 0; i < CDCACM_INTERFACE_COUNT; i ++)
+				if (avaiable_incoming_endpoints & (1 << i))
+				{
+					len = incoming_usb_data[i].len;
+					memcpy(buf, incoming_usb_data[i].buf, len);
+cm_disable_interrupts();
+					avaiable_incoming_endpoints ^= 1 << i;
+					accept_out_packets_on_endpoint(usbd_dev, incoming_usb_data[i].out_epnum);
+					if (len)
+						while (usbd_ep_write_packet(usbd_dev, incoming_usb_data[i].in_epnum, buf, len) == 0)
+							;
+cm_enable_interrupts();
+				}
+			continue;
+		}
+		//__asm__("wfi");
+		cm_enable_interrupts();
 	}
 }
 
