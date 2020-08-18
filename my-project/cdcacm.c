@@ -37,7 +37,7 @@ enum
 	CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE		= 512,
 	CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT			= 0x01,
 	CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT_SIZE		= CDCACM_INTERFACE_0_DATA_IN_ENDPOINT_SIZE,
-	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT		= 0x82,
+	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT		= 0x83,
 	CDCACM_INTERFACE_0_NOTIFICATION_IN_ENDPOINT_SIZE	= 16,
 
 	MAX_USB_PACKET_SIZE					= 512,
@@ -49,6 +49,7 @@ static struct
 	int		out_epnum;
 	int		in_epnum;
 	uint8_t		buf[MAX_USB_PACKET_SIZE];
+	int		max_packet_size;
 	int		len;
 }
 incoming_usb_data[CDCACM_INTERFACE_COUNT] =
@@ -56,7 +57,8 @@ incoming_usb_data[CDCACM_INTERFACE_COUNT] =
 	{
 		.out_epnum		= CDCACM_INTERFACE_0_DATA_OUT_ENDPOINT,
 		.in_epnum		= CDCACM_INTERFACE_0_DATA_IN_ENDPOINT,
-		.len		= 0,
+		.max_packet_size	= 512,
+		.len			= 0,
 	},
 };
 static unsigned avaiable_incoming_endpoints;
@@ -251,7 +253,7 @@ int i;
 		/* Endpoint not found. */
 		return;
 
-	incoming_usb_data[i].len = usbd_ep_read_packet(usbd_dev, ep, incoming_usb_data[i].buf, MAX_USB_PACKET_SIZE);
+	incoming_usb_data[i].len = usbd_ep_read_packet(usbd_dev, ep, incoming_usb_data[i].buf, sizeof incoming_usb_data[i].buf);
 	avaiable_incoming_endpoints |= 1 << i;
 }
 
@@ -273,6 +275,7 @@ static void cdcacm_set_config(usbd_device *usbd_dev, uint16_t wValue)
 }
 
 usbd_device *usbd_dev;
+volatile busy_count;
 int main(void)
 {
 	/* if this does not get incremented, it is possible that some usb interrupt flag is not handled,
@@ -303,13 +306,16 @@ int main(void)
 				{
 					len = incoming_usb_data[i].len;
 					memcpy(buf, incoming_usb_data[i].buf, len);
-cm_disable_interrupts();
 					avaiable_incoming_endpoints ^= 1 << i;
 					accept_out_packets_on_endpoint(usbd_dev, incoming_usb_data[i].out_epnum);
 					if (len)
-						while (usbd_ep_write_packet(usbd_dev, incoming_usb_data[i].in_epnum, buf, len) == 0)
-							;
-cm_enable_interrupts();
+						while (usbd_ep_write_packet(usbd_dev, incoming_usb_data[i].in_epnum, buf, len) == 0xffff)
+							busy_count ++;
+					if (len == incoming_usb_data[i].max_packet_size)
+					{
+						while (usbd_ep_write_packet(usbd_dev, incoming_usb_data[i].in_epnum, 0, 0) == 0xffff)
+							busy_count ++;
+					}
 				}
 			continue;
 		}
